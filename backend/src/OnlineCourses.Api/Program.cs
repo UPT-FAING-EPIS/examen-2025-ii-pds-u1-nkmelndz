@@ -1,93 +1,70 @@
-using OnlineCourses.Application.Courses.Services;
-using OnlineCourses.Domain.Repositories;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.IdentityModel.Tokens;
-using System.Text;
-using OnlineCourses.Application.Auth.Services;
-using OnlineCourses.Application.Auth.DTOs;
-using Microsoft.EntityFrameworkCore;
+using OnlineCourses.Application.Courses;
 using OnlineCourses.Infrastructure.Persistence;
-using OnlineCourses.Application.Enrollments.Services;
-using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// JWT Auth (config mínima)
-var jwtKey = builder.Configuration["Jwt:Key"] ?? "DEV_SECRET_KEY_CHANGE";
-var keyBytes = Encoding.UTF8.GetBytes(jwtKey);
-builder.Services.AddAuthentication(o =>
-{
-    o.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    o.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-}).AddJwtBearer(o =>
-{
-    o.TokenValidationParameters = new TokenValidationParameters
-    {
-        ValidateIssuer = false,
-        ValidateAudience = false,
-        ValidateIssuerSigningKey = true,
-        IssuerSigningKey = new SymmetricSecurityKey(keyBytes),
-        ClockSkew = TimeSpan.Zero
-    };
-});
-
-// Dependency Injection
-builder.Services.AddDbContext<AppDbContext>(o => o.UseInMemoryDatabase("OnlineCoursesDb"));
-builder.Services.AddScoped<ICourseRepository, EfCourseRepository>();
-builder.Services.AddScoped<IEnrollmentRepository, EfEnrollmentRepository>();
+builder.Services.AddSingleton<ICourseRepository, InMemoryCourseRepository>();
 builder.Services.AddScoped<CourseService>();
-builder.Services.AddScoped<EnrollmentService>();
-builder.Services.AddSingleton<AuthService>(sp => new AuthService(
-    key: builder.Configuration["Jwt:Key"] ?? "DEV_SECRET_KEY_CHANGE",
-    issuer: builder.Configuration["Jwt:Issuer"],
-    audience: builder.Configuration["Jwt:Audience"],
-    hours: int.TryParse(builder.Configuration["Jwt:Hours"], out var h) ? h : 4
-)); // InMemory auth store (temporal)
 
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+// Swagger habilitado siempre mientras se desarrolla (luego condicionarlo por entorno)
+app.UseSwagger();
+app.UseSwaggerUI();
 
-app.UseAuthentication();
-app.UseAuthorization();
+// Redirect conveniente /swagger -> /swagger/index.html
+app.MapGet("/swagger", () => Results.Redirect("/swagger/index.html"));
 
-app.MapGet("/api/courses", async (CourseService service, string? category, string? level, string? q, CancellationToken ct) =>
+app.MapGet("/api/courses", async (string? category, string? level, string? q, CourseService service, CancellationToken ct) =>
 {
-    var result = await service.GetCoursesAsync(category, level, q, ct);
-    return Results.Ok(result);
-});
-
-app.MapPost("/api/auth/register", (AuthService auth, RegisterRequest req) =>
-{
-    try { return Results.Ok(auth.Register(req)); }
-    catch (Exception ex) { return Results.BadRequest(new { error = ex.Message }); }
-});
-
-app.MapPost("/api/auth/login", (AuthService auth, LoginRequest req) =>
-{
-    try { return Results.Ok(auth.Login(req)); }
-    catch (Exception) { return Results.Unauthorized(); }
-});
-
-app.MapPost("/api/enrollments", async (EnrollmentService service, Guid courseId, ClaimsPrincipal user, CancellationToken ct) =>
-{
-    if (!Guid.TryParse(user.FindFirstValue(ClaimTypes.NameIdentifier), out var userId)) return Results.Unauthorized();
-    try { var dto = await service.EnrollAsync(courseId, userId, ct); return Results.Ok(dto); }
-    catch (Exception ex) { return Results.BadRequest(new { error = ex.Message }); }
-}).RequireAuthorization();
-
-app.MapGet("/api/enrollments/my", async (EnrollmentService service, ClaimsPrincipal user, CancellationToken ct) =>
-{
-    if (!Guid.TryParse(user.FindFirstValue(ClaimTypes.NameIdentifier), out var userId)) return Results.Unauthorized();
-    var list = await service.GetMyAsync(userId, ct);
+    var list = await service.ListAsync(category, level, q, ct);
     return Results.Ok(list);
-}).RequireAuthorization();
+});
+
+app.MapGet("/api/courses/{id:guid}", async (Guid id, CourseService service, CancellationToken ct) =>
+{
+    var course = await service.GetAsync(id, ct);
+    return course is null ? Results.NotFound() : Results.Ok(course);
+});
+
+// Simulación de autenticación (placeholder) – instructorId y roles hardcodeados para ahora
+app.MapPost("/api/courses", async (OnlineCourses.Application.Courses.Dtos.CreateCourseRequest req, CourseService service, CancellationToken ct) =>
+{
+    var fakeInstructorId = Guid.Parse("00000000-0000-0000-0000-000000000111");
+    var id = await service.CreateAsync(req, fakeInstructorId, ct);
+    return Results.Created($"/api/courses/{id}", new { id });
+});
+
+app.MapPut("/api/courses/{id:guid}", async (Guid id, OnlineCourses.Application.Courses.Dtos.UpdateCourseRequest req, CourseService service, CancellationToken ct) =>
+{
+    var fakeInstructorId = Guid.Parse("00000000-0000-0000-0000-000000000111");
+    bool isAdmin = false; // placeholder
+    try
+    {
+        var updated = await service.UpdateAsync(id, req, fakeInstructorId, isAdmin, ct);
+        return updated ? Results.NoContent() : Results.NotFound();
+    }
+    catch (UnauthorizedAccessException)
+    {
+        return Results.StatusCode(StatusCodes.Status403Forbidden);
+    }
+});
+
+app.MapDelete("/api/courses/{id:guid}", async (Guid id, CourseService service, CancellationToken ct) =>
+{
+    bool isAdmin = true; // placeholder para permitir borrado
+    try
+    {
+        var deleted = await service.DeleteAsync(id, isAdmin, ct);
+        return deleted ? Results.NoContent() : Results.NotFound();
+    }
+    catch (UnauthorizedAccessException)
+    {
+        return Results.StatusCode(StatusCodes.Status403Forbidden);
+    }
+});
 
 app.Run();

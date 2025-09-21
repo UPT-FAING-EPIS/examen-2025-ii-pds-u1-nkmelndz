@@ -6,14 +6,13 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="xunit" Version="2.8.1" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.1" />
+    <PackageReference Include="xunit" Version="2.5.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.0" />
     <PackageReference Include="FluentAssertions" Version="6.12.0" />
     <PackageReference Include="coverlet.collector" Version="6.0.0" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\src\OnlineCourses.Application\OnlineCourses.Application.csproj" />
-    <ProjectReference Include="..\..\src\OnlineCourses.Infrastructure\OnlineCourses.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\OnlineCourses.Domain\OnlineCourses.Domain.csproj" />
+    <ProjectReference Include="..\..\src\OnlineCourses.Application\OnlineCourses.Application.csproj" />
   </ItemGroup>
 </Project>

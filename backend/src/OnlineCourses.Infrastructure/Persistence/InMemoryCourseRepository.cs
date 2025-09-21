@@ -1,5 +1,5 @@
+using OnlineCourses.Application.Courses;
 using OnlineCourses.Domain.Entities;
-using OnlineCourses.Domain.Repositories;
 
 namespace OnlineCourses.Infrastructure.Persistence;
 
@@ -13,34 +13,32 @@ public class InMemoryCourseRepository : ICourseRepository
         return Task.CompletedTask;
     }
 
-    public Task DeleteAsync(Guid id, CancellationToken ct = default)
+    public Task DeleteAsync(Course course, CancellationToken ct = default)
     {
-        var c = _courses.FirstOrDefault(x => x.Id == id);
-        if (c != null) _courses.Remove(c);
+        _courses.Remove(course);
         return Task.CompletedTask;
     }
 
-    public Task<IEnumerable<Course>> GetAllAsync(string? category = null, string? level = null, string? search = null, CancellationToken ct = default)
+    public Task<bool> ExistsAsync(Guid id, CancellationToken ct = default)
+        => Task.FromResult(_courses.Any(c => c.Id == id));
+
+    public Task<IEnumerable<Course>> GetAllAsync(string? category, string? level, string? q, CancellationToken ct = default)
     {
         IEnumerable<Course> query = _courses;
         if (!string.IsNullOrWhiteSpace(category)) query = query.Where(c => c.Category.Equals(category, StringComparison.OrdinalIgnoreCase));
         if (!string.IsNullOrWhiteSpace(level)) query = query.Where(c => c.Level.Equals(level, StringComparison.OrdinalIgnoreCase));
-        if (!string.IsNullOrWhiteSpace(search)) query = query.Where(c => c.Title.Contains(search, StringComparison.OrdinalIgnoreCase) || c.Description.Contains(search, StringComparison.OrdinalIgnoreCase));
-        return Task.FromResult(query);
+        if (!string.IsNullOrWhiteSpace(q)) query = query.Where(c => c.Title.Contains(q, StringComparison.OrdinalIgnoreCase) || c.Description.Contains(q, StringComparison.OrdinalIgnoreCase));
+        // OrderBy devuelve IOrderedEnumerable<Course>; explicitamente lo exponemos como IEnumerable para que coincida la firma
+        var ordered = query.OrderBy(c => c.Title).AsEnumerable();
+        return Task.FromResult<IEnumerable<Course>>(ordered);
     }
 
     public Task<Course?> GetByIdAsync(Guid id, CancellationToken ct = default)
-    {
-        return Task.FromResult(_courses.FirstOrDefault(c => c.Id == id));
-    }
+        => Task.FromResult(_courses.SingleOrDefault(c => c.Id == id));
 
     public Task UpdateAsync(Course course, CancellationToken ct = default)
     {
-        var existing = _courses.FindIndex(c => c.Id == course.Id);
-        if (existing >= 0)
-        {
-            _courses[existing] = course;
-        }
+        // nada adicional; ya está referenciado en la lista
         return Task.CompletedTask;
     }
 }
