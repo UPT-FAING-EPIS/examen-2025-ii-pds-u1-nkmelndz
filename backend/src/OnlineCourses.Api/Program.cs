@@ -40,7 +40,12 @@ builder.Services.AddScoped<ICourseRepository, EfCourseRepository>();
 builder.Services.AddScoped<IEnrollmentRepository, EfEnrollmentRepository>();
 builder.Services.AddScoped<CourseService>();
 builder.Services.AddScoped<EnrollmentService>();
-builder.Services.AddSingleton<AuthService>(); // InMemory store
+builder.Services.AddSingleton<AuthService>(sp => new AuthService(
+    key: builder.Configuration["Jwt:Key"] ?? "DEV_SECRET_KEY_CHANGE",
+    issuer: builder.Configuration["Jwt:Issuer"],
+    audience: builder.Configuration["Jwt:Audience"],
+    hours: int.TryParse(builder.Configuration["Jwt:Hours"], out var h) ? h : 4
+)); // InMemory auth store (temporal)
 
 var app = builder.Build();
 
