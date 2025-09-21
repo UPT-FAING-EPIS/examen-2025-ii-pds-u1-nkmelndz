@@ -1,0 +1,68 @@
+name: deploy-app
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [ main ]
+    paths:
+      - 'backend/src/**'
+      - 'frontend/**'
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore & Publish backend
+        run: |
+          dotnet restore backend/src/OnlineCourses.sln
+          dotnet publish backend/src/OnlineCourses.Api/OnlineCourses.Api.csproj -c Release -o backend/publish
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm ci || npm install
+          npm run build
+
+      - name: Preparar paquete backend
+        run: |
+          cd backend/publish
+          zip -r ../../backend-app.zip .
+
+      - name: Configurar credenciales AWS (placeholder)
+        run: echo "Se requieren secrets AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION configurados."
+
+      - name: Instalar AWS CLI
+        run: |
+          sudo apt-get update && sudo apt-get install -y unzip
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip -q awscliv2.zip
+          sudo ./aws/install
+
+      - name: Sincronizar frontend a S3
+        run: |
+          echo "aws s3 sync frontend/dist s3://$FRONTEND_BUCKET --delete" || true
+
+      - name: Invalidar CloudFront
+        run: |
+          echo "aws cloudfront create-invalidation --distribution-id $CLOUDFRONT_DISTRIBUTION_ID --paths '/*'" || true
+
+      - name: Desplegar Backend a Elastic Beanstalk
+        run: |
+          echo "aws elasticbeanstalk create-application-version --application-name $EB_APPLICATION_NAME --version-label build-$GITHUB_RUN_NUMBER --source-bundle S3Bucket=$EB_DEPLOY_BUCKET,S3Key=backend-app.zip" || true
+          echo "aws elasticbeanstalk update-environment --application-name $EB_APPLICATION_NAME --environment-name $EB_ENVIRONMENT_NAME --version-label build-$GITHUB_RUN_NUMBER" || true

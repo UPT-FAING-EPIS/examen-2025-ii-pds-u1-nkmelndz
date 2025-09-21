@@ -1,0 +1,55 @@
+name: infra-diagrama
+
+on:
+  workflow_dispatch: {}
+  push:
+    paths:
+      - 'infra/**/*.tf'
+
+permissions:
+  contents: write
+
+jobs:
+  diagram:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.5
+
+      - name: terraform init
+        working-directory: infra
+        run: terraform init -input=false
+
+      - name: Plan (para grafo más preciso)
+        working-directory: infra
+        run: terraform plan -input=false -out=plan.tfplan || true
+
+      - name: Generar DOT
+        working-directory: infra
+        run: |
+          mkdir -p ../docs/diagrams
+          terraform graph plan.tfplan > ../docs/diagrams/infra.dot || terraform graph > ../docs/diagrams/infra.dot
+
+      - name: Instalar Graphviz
+        run: sudo apt-get update && sudo apt-get install -y graphviz
+
+      - name: Generar PNG
+        run: |
+          dot -Tpng docs/diagrams/infra.dot -o docs/diagrams/infra.png
+
+      - name: Commit diagramas si cambiaron
+        run: |
+          if git diff --quiet docs/diagrams; then
+            echo "Sin cambios en diagramas"
+          else
+            git config user.name "github-actions"
+            git config user.email "actions@users.noreply.github.com"
+            git add docs/diagrams/infra.dot docs/diagrams/infra.png
+            git commit -m "chore(diagrams): actualizar diagrama infraestructura"
+            git push
+          fi

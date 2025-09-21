@@ -1,0 +1,55 @@
+name: publish-docs
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'backend/src/**'
+      - 'docs/docfx/**'
+      - 'docs/diagrams/**'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Instalar DocFX
+        run: dotnet tool install -g docfx
+
+      - name: Generar metadata y sitio
+        run: |
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          docfx docs/docfx/docfx.json
+
+      - name: Subir artefacto página
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/docfx/_site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy a GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

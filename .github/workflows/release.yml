@@ -1,0 +1,60 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Publish backend
+        run: |
+          dotnet restore backend/src/OnlineCourses.sln
+          dotnet publish backend/src/OnlineCourses.Api/OnlineCourses.Api.csproj -c Release -o backend/publish
+          (cd backend/publish && zip -r ../../backend.zip .)
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build frontend
+        run: |
+            cd frontend
+            npm ci || npm install
+            npm run build
+            cd dist
+            zip -r ../../frontend.zip .
+
+      - name: Subir artefactos
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: |
+            backend.zip
+            frontend.zip
+
+      - name: Crear release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            backend.zip
+            frontend.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

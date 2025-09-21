@@ -1,0 +1,92 @@
+name: infraestructura
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Aplicar cambios (terraform apply)?"
+        required: true
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+  push:
+    paths:
+      - 'infra/**'
+
+concurrency:
+  group: terraform-infra
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # Para OIDC si se configura en el futuro
+
+env:
+  TF_CLI_ARGS_apply: -no-color
+  TF_CLI_ARGS_plan: -no-color
+  # La región se pasa por secret; fallback en steps
+  AWS_REGION: us-east-1
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.5
+
+      - name: Cache proveedores
+        uses: actions/cache@v4
+        with:
+          path: infra/.terraform
+          key: terraform-${{ hashFiles('infra/**/*.tf') }}
+          restore-keys: |
+            terraform-
+
+      - name: Configurar credenciales AWS
+        run: |
+          echo "Credenciales se inyectarán vía secrets en ejecución real (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION)."
+
+      - name: terraform fmt
+        working-directory: infra
+        run: terraform fmt -check -diff || true
+
+      - name: terraform init
+        working-directory: infra
+        run: terraform init -input=false
+
+      - name: terraform validate
+        working-directory: infra
+        run: terraform validate
+
+      - name: terraform plan
+        id: plan
+        working-directory: infra
+        run: terraform plan -input=false -out=plan.tfplan
+
+      - name: Publicar plan como artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: infra/plan.tfplan
+
+      - name: Mostrar resumen de plan
+        working-directory: infra
+        run: |
+          terraform show -no-color plan.tfplan > plan.txt
+          echo "--- Plan (primeras 200 líneas) ---"
+          head -n 200 plan.txt
+
+      - name: terraform apply
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.apply == 'true' }}
+        working-directory: infra
+        run: terraform apply -input=false -auto-approve plan.tfplan
+
+      - name: Salida
+        if: ${{ always() }}
+        working-directory: infra
+        run: terraform output -json || true

@@ -1,0 +1,30 @@
+{
+  "metadata": [
+    {
+      "src": [
+        {
+          "files": ["**/*.csproj"],
+          "cwd": "../../backend/src"
+        }
+      ],
+      "dest": "api",
+      "filter": "filterConfig.yml"
+    }
+  ],
+  "build": {
+    "content": [
+      { "files": ["api/**.yml", "api/index.md"] },
+      { "files": ["articles/**.md"], "src": "articles" },
+      { "files": ["index.md"] }
+    ],
+    "resource": [
+      { "files": ["images/**"] }
+    ],
+    "dest": "_site",
+    "globalMetadata": {
+      "_appTitle": "Online Courses Docs",
+      "site_name": "Online Courses Docs"
+    },
+    "markdownEngineName": "markdig"
+  }
+}
