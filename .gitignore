@@ -1,0 +1,33 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.lnk
+
+# Node
+node_modules/
+/dist/
+/.vite/
+
+# Terraform
+*.tfstate
+*.tfstate.backup
+.terraform/
+crash.log
+
+# Logs
+audit.log
+*.log
+
+# Coverage
+coverage/
+.coverage*
+TestResults/
+
+# DocFX
+docs/_site/
+
+# Others
+.env
+.env.*
