@@ -6,18 +6,49 @@ using OnlineCourses.Application.Enrollments.Dtos;
 using OnlineCourses.Infrastructure.Persistence;
 using OnlineCourses.Infrastructure.Auth;
 using OnlineCourses.Infrastructure.Enrollments;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
+using System.Text.RegularExpressions;
+using System.Net;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Configuración dinámica de URLs: primero App:Urls en config, luego variable APP_URLS / ASPNETCORE_URLS.
+// Si nada se especifica, Kestrel elegirá los defaults (http://localhost:5000 y https://localhost:7000 si hay cert dev).
+var configuredUrls = builder.Configuration["App:Urls"]
+    ?? Environment.GetEnvironmentVariable("APP_URLS")
+    ?? Environment.GetEnvironmentVariable("ASPNETCORE_URLS");
+if (!string.IsNullOrWhiteSpace(configuredUrls))
+{
+    builder.WebHost.UseUrls(configuredUrls);
+    Console.WriteLine($"[HOST] Usando URLs configuradas: {configuredUrls}");
+}
+else
+{
+    Console.WriteLine("[HOST] No se configuró App:Urls / APP_URLS. Intentando fallback IPv4 puerto dinámico...");
+    // Fallback: forzar IPv4 loopback con puerto dinámico si el binding estándar (localhost IPv6) está bloqueado.
+    builder.WebHost.ConfigureKestrel(k =>
+    {
+        k.Listen(IPAddress.Loopback, 0); // 0 => puerto dinámico asignado por el SO
+    });
+}
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-builder.Services.AddSingleton<ICourseRepository, InMemoryCourseRepository>();
-builder.Services.AddSingleton<IUserRepository, InMemoryUserRepository>();
-builder.Services.AddSingleton<IEnrollmentRepository, InMemoryEnrollmentRepository>();
+// DbContext PostgreSQL (log de cadena de conexión enmascarada para diagnóstico)
+string rawCs = builder.Configuration.GetConnectionString("Default")
+    ?? "Host=localhost;Port=5433;Database=onlinecourses_dev;Username=online;Password=onlinepwd"; // fallback actualizado a 5433
+string Mask(string cs) => Regex.Replace(cs, "(?i)(password=)([^;]+)", "$1****");
+Console.WriteLine($"[DB] ConnectionString (effective): {Mask(rawCs)}");
+builder.Services.AddDbContext<OnlineCoursesDbContext>(options => options.UseNpgsql(rawCs));
+
+// Repositorios EF
+builder.Services.AddScoped<ICourseRepository, EfCourseRepository>();
+builder.Services.AddScoped<IUserRepository, EfUserRepository>();
+builder.Services.AddScoped<IEnrollmentRepository, EfEnrollmentRepository>();
 builder.Services.AddSingleton<ITokenGenerator, SimpleJwtGenerator>();
 builder.Services.AddScoped<CourseService>();
 builder.Services.AddScoped<AuthService>();
@@ -46,6 +77,50 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
+
+// Log de direcciones efectivas al iniciar (puerto dinámico incluido)
+app.Lifetime.ApplicationStarted.Register(() =>
+{
+    Console.WriteLine("[HOST] Direcciones efectivas levantadas:");
+    foreach (var u in app.Urls)
+        Console.WriteLine("  " + u);
+    Console.WriteLine("[HOST] Abra /swagger para la UI.");
+});
+
+// Migraciones y seeding (solo desarrollo / arranque)
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<OnlineCoursesDbContext>();
+    try
+    {
+        db.Database.Migrate();
+        if (!db.Users.Any())
+        {
+            // Hash simple temporal (igual que AuthService) -> luego reemplazar por BCrypt
+            static string Hash(string p) => Convert.ToBase64String(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(p)));
+            var admin = new OnlineCourses.Domain.Entities.User { Email = "admin@demo.com", FullName = "Admin Demo", PasswordHash = Hash("Admin123!"), Role = OnlineCourses.Domain.Entities.UserRole.Admin };
+            var instructor = new OnlineCourses.Domain.Entities.User { Email = "instructor@demo.com", FullName = "Instructor Demo", PasswordHash = Hash("Instructor123!"), Role = OnlineCourses.Domain.Entities.UserRole.Instructor };
+            db.Users.AddRange(admin, instructor);
+            db.Courses.Add(new OnlineCourses.Domain.Entities.Course
+            {
+                Title = "Curso Intro",
+                Description = "Curso de ejemplo seed",
+                Category = "general",
+                Level = "beginner",
+                Syllabus = "Temario inicial",
+                DurationHours = 5,
+                Price = 0,
+                InstructorId = instructor.Id,
+                IsPublished = true
+            });
+            db.SaveChanges();
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[SEED ERROR] {ex.Message}");
+    }
+}
 
 if (app.Environment.IsDevelopment())
 {
